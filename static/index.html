@@ -16,6 +16,9 @@
 aside{background:var(--side);border-right:1px solid var(--rule);padding:16px;overflow:auto}
 aside h1{font-size:15px;margin:0 0 4px}aside .sub{font-size:12px;color:var(--muted);margin-bottom:14px}
 .new{width:100%;padding:8px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:6px;font:600 14px var(--sans);cursor:pointer}
+.mk{margin-top:16px}.mk h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 6px}
+.mk .row{display:flex;flex-wrap:wrap;gap:6px}.mk button{border:1px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:14px;padding:5px 11px;font:13px var(--sans);cursor:pointer}
+.mk button:hover{border-color:var(--accent)}
 .hist{list-style:none;padding:0;margin:14px 0 0}.hist li{padding:7px 8px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hist li:hover,.hist li.on{background:var(--panel)}
 main{display:flex;flex-direction:column;height:100vh;min-width:0}
@@ -28,7 +31,7 @@ main{display:flex;flex-direction:column;height:100vh;min-width:0}
 .chart{height:340px;margin:12px 0 4px;border:1px solid var(--rule);border-radius:8px;overflow:hidden}.pane{height:120px;margin:4px 0;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
 .ctitle{font-size:13px;font-weight:600;margin-top:12px}
 .live{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-top:10px;font:13px var(--mono);color:var(--muted)}
-.live .px{font:600 20px var(--sans);color:var(--ink)}.live .up{color:var(--up)}.live .down{color:var(--down)}
+.live .px{font:600 20px var(--sans);color:var(--ink)}.live .up,td.up{color:var(--up)}.live .down,td.down{color:var(--down)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:5px}.dot.on{background:var(--up);animation:pulse 2s infinite}
 @keyframes pulse{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.dot.on{animation:none}}.legend{font:12px var(--mono);color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
 .tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;width:100%;font-size:13px}
@@ -50,6 +53,10 @@ textarea{flex:1;resize:none;height:48px;padding:12px 14px;border:1px solid var(-
 <aside>
   <h1>AI Stock Assistant</h1><div class="sub">Market data, research and analysis in one chat</div>
   <button class="new" id="new">New chat</button>
+  <div class="mk"><h2>Markets</h2><div class="row">
+    <button type="button" data-r="asia">Asia</button><button type="button" data-r="us">US</button>
+    <button type="button" data-r="europe">Europe</button><button type="button" data-r="crypto">Crypto</button>
+    <button type="button" data-r="global">Global</button></div></div>
   <ul class="hist" id="hist"></ul>
 </aside>
 <main>
@@ -61,7 +68,7 @@ textarea{flex:1;resize:none;height:48px;padding:12px 14px;border:1px solid var(-
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let cid=null, busy=false;
-const SUGG=["Is AAPL in an uptrend? Show the indicators.","What is Reliance Industries trading at in India right now?","How is MSFT valued compared with its growth?","Compare NVDA, AMD and INTC over the last year.","What if I had invested $1,000 in TSLA two years ago?"];
+const SUGG=["How are Asian markets doing today?","Is AAPL in an uptrend? Show the indicators.","What is Reliance Industries trading at in India right now?","How is MSFT valued compared with its growth?","Compare NVDA, AMD and INTC over the last year.","What if I had invested $1,000 in TSLA two years ago?"];
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const PALETTE=["#2b6cb0","#c05621","#2f855a","#805ad5","#b83280"];
 
@@ -183,6 +190,23 @@ async function openConv(id){cid=id;$("msgs").innerHTML="";const d=await (await f
 async function loadHist(){const list=await (await fetch("/api/conversations")).json();
   $("hist").innerHTML=list.map(c=>`<li data-id="${c.id}" class="${c.id===cid?"on":""}" title="${esc(c.title)}">${esc(c.title)}</li>`).join("");
   $("hist").querySelectorAll("li").forEach(li=>li.onclick=()=>!busy&&openConv(li.dataset.id));}
+const REGION_NAMES={asia:"Asia",us:"United States",europe:"Europe",crypto:"Crypto",global:"Global"};
+function marketBoard(region){
+  if($("msgs").querySelector(".empty"))$("msgs").innerHTML="";
+  const box=add(`<div class="bot"><div class="ctitle" style="margin-top:0">${esc(REGION_NAMES[region])} markets</div><div class="board">Loading…</div></div>`).firstChild;
+  const el=box.querySelector(".board");
+  async function tick(){
+    if(!document.body.contains(el)){clearInterval(timer);return}
+    try{const r=await fetch(`/api/market/overview?region=${region}`);const d=await r.json();if(!r.ok)throw new Error(d.detail);
+      const rows=d.indices.map(x=>x.status!=="ok"?[x.name,x.country,"—","—","unavailable"]:
+        [x.name,x.country,x.price,`${x.change_pct>=0?"+":""}${x.change_pct}%`,x.as_of]);
+      el.innerHTML="";table(el,{columns:["Index","Market","Latest","Change","As of"],rows});
+      el.querySelectorAll("tbody tr").forEach((tr,i)=>{const v=d.indices[i].change_pct;if(v!=null)tr.children[3].className="n "+(v>=0?"up":"down")});
+      el.insertAdjacentHTML("beforeend",`<p class="note" style="font-size:12px;color:var(--muted)">${esc(d.note)} Updated ${new Date().toLocaleTimeString()} · refreshes every 60 s.</p>`)}
+    catch(e){el.textContent="Market board unavailable right now: "+e.message}}
+  const timer=setInterval(tick,60000);tick();
+}
+document.querySelectorAll(".mk button").forEach(b=>b.onclick=()=>marketBoard(b.dataset.r));
 $("f").onsubmit=e=>{e.preventDefault();send()};
 $("q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send()}});
 $("new").onclick=()=>{if(busy)return;cid=null;empty();loadHist()};

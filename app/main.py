@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.analysis import technical
 from app.data.market import DataSourceError, TickerNotFound, provider
+from app.data.markets import boards
 from app.harness import audit
 from app.harness.security import verify_ptc_token
 from app.portfolio import parse_portfolio
@@ -78,6 +79,17 @@ def conversation(cid: str):
 
 # ---------- chart data for the UI (the model requests charts; data is served here) ----------
 PERIODS = {"1mo", "3mo", "6mo", "1y", "2y", "5y"}
+
+
+@app.get("/api/market/overview")
+def overview(region: str = "asia"):
+    """Index board for a region (asia, us, europe, crypto, global) for the Markets panel."""
+    try:
+        return boards.overview(region)
+    except DataSourceError as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/market/quote")

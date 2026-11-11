@@ -4,8 +4,15 @@ from mcp.server.fastmcp import FastMCP
 
 from app.analysis import technical
 from app.data.market import provider
+from app.data.markets import boards
 
 mcp = FastMCP("market-data")
+
+
+@mcp.tool()
+def get_market_overview(region: str = "asia") -> dict:
+    """Major indices for a region in one call: asia, us, europe, crypto or global. Price, % change, date."""
+    return boards.overview(region)
 
 
 @mcp.tool()
