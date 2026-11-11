@@ -18,18 +18,19 @@ Follow-up questions keep context ("now add GOOGL").
 
 ## How it works
 ```
-Chat UI ──▶ FastAPI /api/chat ──▶ Celery task (Redis) ──▶ Harness (Claude Sonnet)
+Chat UI ──▶ FastAPI /api/chat ──▶ Celery task (Redis) ──▶ Harness (open-source LLM, free)
    ▲  progress, saved results          │ retries            ├─ permissions: allow-lists, limits
    │                                   ▼                    ├─ MCP tools: prices, profile, statements,
    └──── /api/market/chart|compare   audit log + history    │  earnings, news, technical summary
                                                             ├─ Python sandbox (ta, perf, fa, PTC)
-                                                            └─ sub-agents (Claude Haiku)
+                                                            └─ sub-agents (smaller/cheaper model)
 ```
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | Path | Purpose |
 |---|---|
 | `app/harness/agent.py` | Conversational agent loop, tools, permissions budget, progress |
+| `app/harness/llm.py` | Model provider layer: OpenAI-compatible APIs (Groq, Ollama, OpenRouter) or Claude |
 | `app/harness/context.py` | Result clipping and history compaction |
 | `app/mcp_servers/market_data.py` | MCP server: market data and company information |
 | `app/data/market.py` | Data provider (yfinance for NASDAQ; PSX stub), caching, errors |
@@ -39,11 +40,25 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | `app/main.py` | API: chat, runs, conversations, chart data, PTC proxy |
 | `static/index.html` | Chat UI with charts, tables, sources, history |
 
+## Model (free by default)
+The harness runs on any OpenAI-compatible API, so it works with **free, open-source models**:
+
+| Option | Cost | Model | Setup |
+|---|---|---|---|
+| **Groq** (default) | Free tier, no card | Llama 3.3 70B (open source) | Key from console.groq.com |
+| **Ollama** | Free, offline | e.g. Qwen 2.5 7B (open source) | Install Ollama, `ollama pull qwen2.5:7b` |
+| Claude | Paid | Claude Sonnet / Haiku | `LLM_PROVIDER=anthropic` |
+
+All options are configured in `.env` (see `.env.example`). The model must support tool (function)
+calling. Free tiers have per-minute limits: the client retries rate-limited requests automatically and
+Celery retries the whole job if needed. Open-source models are somewhat less reliable at multi-step tool
+use than Claude, so the harness also accepts plain-text replies as answers.
+
 ## Run locally
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt numpy
-cp .env.example .env      # add ANTHROPIC_API_KEY; CELERY_EAGER=true runs jobs without Redis
+cp .env.example .env      # paste your free Groq key as LLM_API_KEY; CELERY_EAGER=true runs jobs without Redis
 uvicorn app.main:app --reload
 # open http://localhost:8000
 ```
@@ -59,7 +74,7 @@ loop (self-debugging, blocked tools, usage limits), conversation context, the ch
 failures, rate limit), chart endpoints, outage handling, sandbox limits and PTC tokens.
 
 ## Deploy
-One EC2 instance (or any VM) running `docker compose`. Set `ANTHROPIC_API_KEY`, `PTC_SHARED_SECRET`
+One EC2 instance (or any VM) running `docker compose`. Set the model provider keys, `PTC_SHARED_SECRET`
 and `CELERY_EAGER=false` as secrets on the host, never in Git. See Jira PMH-19.
 
 ## Contributing

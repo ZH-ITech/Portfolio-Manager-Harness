@@ -8,11 +8,10 @@ written to the audit log and reported as progress."""
 import json
 from typing import Callable
 
-import anthropic
-
 from app.config import settings
 from app.harness import audit
 from app.harness.context import clip, maybe_compact
+from app.harness.llm import get_client
 from app.harness.mcp_hub import get_hub
 from app.harness.security import ptc_token
 from app.sandbox.runner import run_code
@@ -124,8 +123,17 @@ class Budget:
                 raise LimitReached(f"Sandbox-run limit ({settings.max_sandbox_runs}) reached. Answer with what you have.")
 
 
-def _client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
+def _client():
+    return get_client()
+
+
+def _final_from_text(final_tool: str, text: str) -> dict:
+    """Open models sometimes reply in plain text instead of calling the final tool."""
+    if final_tool == "answer":
+        return {"text": text, "charts": [], "tables": [], "sources": [],
+                "assumptions": ["The model replied in plain text, so sources were not itemised; "
+                                "see 'Show the steps' for the data used."]}
+    return {"findings": text}
 
 
 def agent_loop(*, run_id: str, agent: str, model: str, system: str, messages: list,
@@ -149,6 +157,11 @@ def agent_loop(*, run_id: str, agent: str, model: str, system: str, messages: li
         messages.append({"role": "assistant", "content": [b.model_dump(exclude_none=True) for b in resp.content]})
         uses = [b for b in resp.content if b.type == "tool_use"]
         if not uses:
+            text = "".join(b.text or "" for b in resp.content if b.type == "text").strip()
+            if text:  # some models (often smaller open-source ones) reply in plain text instead of the tool
+                out = _text_as_final(final_tool, text)
+                log("final", {**out, "note": "model replied in plain text; wrapped as the final answer"})
+                return out
             messages.append({"role": "user", "content": f"Continue. When done, call {final_tool}."})
             continue
 
@@ -175,6 +188,14 @@ def agent_loop(*, run_id: str, agent: str, model: str, system: str, messages: li
         messages = maybe_compact(client, messages, log)
 
     raise RuntimeError(f"{agent} did not finish")
+
+
+def _text_as_final(final_tool: str, text: str) -> dict:
+    if final_tool == "answer":
+        return {"text": text, "charts": [], "tables": [], "sources": [],
+                "assumptions": ["Answer returned as plain text; sources were not itemised by the model. "
+                                "See the steps for the data actually fetched."]}
+    return {"findings": text}
 
 
 def history_messages(conversation_id: str | None, new_message: str) -> list:
@@ -214,7 +235,7 @@ def run_chat(run_id: str, conversation_id: str | None, message: str,
     progress = progress or (lambda s, p: None)
     progress("Connecting to data tools", 0.05)
     hub = get_hub()
-    mcp_specs = hub.anthropic_tool_specs()
+    mcp_specs = hub.tool_specs()
     token = ptc_token(run_id)
     budget = Budget()
 

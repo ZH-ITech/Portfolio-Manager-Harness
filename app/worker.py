@@ -1,18 +1,26 @@
 """Celery background processing (PMH-18): every chat message runs as a task
 with progress tracking, automatic retries for transient failures, and saved
 results (the answer is stored in the run and in the conversation history)."""
-import anthropic
+import httpx
 from celery import Celery
 
 from app.config import settings
+from app.data.market import DataSourceError
 from app.harness import audit
+from app.harness.llm import LLMTransientError
 
 celery_app = Celery("pmh", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(task_always_eager=settings.celery_eager, task_acks_late=True,
                        worker_prefetch_multiplier=1, task_time_limit=900, task_soft_time_limit=840)
 
-TRANSIENT = (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError,
-             ConnectionError, TimeoutError)
+# Errors worth retrying: LLM rate limits/outages, data-source outages, network problems
+_transient = [LLMTransientError, DataSourceError, httpx.TransportError, ConnectionError, TimeoutError]
+try:  # only relevant when LLM_PROVIDER=anthropic
+    import anthropic
+    _transient += [anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError]
+except ImportError:
+    pass
+TRANSIENT = tuple(_transient)
 
 
 @celery_app.task(bind=True, name="pmh.chat", max_retries=3)
