@@ -11,7 +11,9 @@ from app.harness.llm import LLMTransientError
 
 celery_app = Celery("pmh", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(task_always_eager=settings.celery_eager, task_acks_late=True,
-                       worker_prefetch_multiplier=1, task_time_limit=900, task_soft_time_limit=840)
+                       worker_prefetch_multiplier=1, task_time_limit=900, task_soft_time_limit=840,
+                       # keep real stdout/stderr so subprocesses (MCP servers) can inherit them
+                       worker_redirect_stdouts=False)
 
 # Errors worth retrying: LLM rate limits/outages, data-source outages, network problems
 _transient = [LLMTransientError, DataSourceError, httpx.TransportError, ConnectionError, TimeoutError]
