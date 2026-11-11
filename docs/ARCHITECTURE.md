@@ -5,8 +5,8 @@
    queues a Celery task. Every message runs in the background, so long analyses never block the UI.
 2. The worker loads the last turns of the conversation and starts the harness. Progress stages
    ("Fetching price history", "Running analysis code", ...) are written to the run; the UI polls them.
-3. The orchestrator (Claude Sonnet) chooses tools: MCP data tools for facts, `run_python` for
-   calculations, `delegate_research` for narrow tasks given to a sub-agent (Claude Haiku).
+3. The orchestrator model chooses tools: MCP data tools for facts, `run_python` for
+   calculations, `delegate_research` for narrow tasks given to a sub-agent (smaller model).
 4. It finishes with a structured `answer`: text, chart requests, tables, sources, assumptions.
    Chart requests name a ticker/period/indicators; the UI fetches the data from `/api/market/chart`
    or `/api/market/compare`, so large datasets never pass through the model.
@@ -15,10 +15,10 @@
 ## Harness responsibilities
 | Concern | Implementation |
 |---|---|
-| Model | `MAIN_MODEL` (orchestrator), `SUBAGENT_MODEL` (sub-agents, compaction) |
+| Model | `app/harness/llm.py`: `LLM_PROVIDER=openai` (default; any OpenAI-compatible server: Groq free tier with Llama 3.3 70B, Ollama offline, OpenRouter) or `anthropic` (Claude). `MAIN_MODEL` (orchestrator), `SUBAGENT_MODEL` (sub-agents, compaction). History is kept in one format and translated per provider; rate limits are retried. |
 | Context | last `HISTORY_TURNS` turns; large tool results clipped; history compacted when over budget |
 | Permissions | per-agent tool allow-list; read-only tools only; `MAX_TOOL_CALLS`, `MAX_SANDBOX_RUNS` per answer; API rate limit |
-| Workflow | tool-use loop with errors returned to the model for self-correction; forced answer at the step limit |
+| Workflow | tool-use loop with errors returned to the model for self-correction; plain-text replies accepted as the answer; forced answer at the step limit |
 | Observability | every model step, tool call, data timestamp, sandbox run and error in the audit log |
 
 ## Sandbox and PTC

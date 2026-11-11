@@ -42,7 +42,7 @@ class McpHub:
                                       "description": t.description or "",
                                       "input_schema": t.inputSchema}
 
-    def anthropic_tool_specs(self) -> list[dict]:
+    def tool_specs(self) -> list[dict]:
         return [{"name": t["name"], "description": f"[MCP:{t['server']}] {t['description']}",
                  "input_schema": t["input_schema"]} for t in self.tools.values()]
 
