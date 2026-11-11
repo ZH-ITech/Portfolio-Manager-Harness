@@ -1,7 +1,6 @@
 import numpy as np
 from fastapi.testclient import TestClient
 
-from tests.conftest import make_ohlcv
 
 
 def _client(tmp_db, monkeypatch):
@@ -47,10 +46,10 @@ def test_rate_limit(tmp_db, monkeypatch):
     assert c.post("/api/chat", json={"message": "3"}).status_code == 429
 
 
-def test_chart_and_compare_endpoints(tmp_db, monkeypatch):
+def test_chart_and_compare_endpoints(tmp_db, monkeypatch, ohlcv):
     c = _client(tmp_db, monkeypatch)
     from app.data import market
-    df = make_ohlcv(np.linspace(50, 100, 600), start="2023-01-02")
+    df = ohlcv(np.linspace(50, 100, 600), start="2023-01-02")
     monkeypatch.setattr(market.NasdaqProvider, "ohlcv", lambda self, t, period="1y", interval="1d": df)
     ch = c.get("/api/market/chart?ticker=AAPL&period=1y&overlays=sma_50,rsi").json()
     assert ch["candles"] and "sma_50" in ch["overlays"] and "rsi_14" in ch["panes"]

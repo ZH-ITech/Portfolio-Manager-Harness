@@ -1,4 +1,6 @@
-from app.sandbox.runner import run_code
+import pytest
+
+from app.sandbox.runner import HAS_RLIMITS, run_code
 
 
 def test_runs_code_and_captures_output():
@@ -18,6 +20,7 @@ def test_enforces_timeout():
     assert r["status"] in ("timeout", "error")
 
 
+@pytest.mark.skipif(not HAS_RLIMITS, reason="memory limits need Linux/macOS (use Docker on Windows)")
 def test_enforces_memory_limit():
     r = run_code("x = bytearray(2_000_000_000)", mem_mb=256)
     assert r["status"] == "error"
@@ -28,3 +31,14 @@ def test_environment_is_scrubbed(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
     r = run_code("import os; print(os.environ.get('ANTHROPIC_API_KEY'))")
     assert r["stdout"].strip() == "None"
+
+
+def test_helper_modules_available_in_sandbox():
+    r = run_code("import ta, perf, fa, ptc\nprint(fa.growth([1, 2]))")
+    assert r["status"] == "ok", r
+    assert r["stdout"].strip() == "[None, 1.0]"
+
+
+def test_unicode_output():
+    r = run_code("print('PKR ₨ and € ok')")
+    assert "€" in r["stdout"]
