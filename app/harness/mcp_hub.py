@@ -2,12 +2,26 @@
 synchronous harness can list and call MCP tools cheaply."""
 import asyncio
 import json
+import os
 import sys
 import threading
 from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+def _errlog():
+    """Where MCP server subprocesses write stderr. Must be a real file with a
+    file descriptor: under Celery, sys.stderr is a LoggingProxy without fileno()."""
+    for stream in (sys.stderr, sys.__stderr__):
+        try:
+            if stream is not None:
+                stream.fileno()
+                return stream
+        except (AttributeError, OSError, ValueError):
+            continue
+    return open(os.devnull, "w")
+
 
 # Registered (approved) MCP servers. The agent can only use tools from these.
 REGISTERED_SERVERS = {
@@ -33,7 +47,7 @@ class McpHub:
 
     async def _connect(self):
         for name, params in self._servers.items():
-            read, write = await self._stack.enter_async_context(stdio_client(params))
+            read, write = await self._stack.enter_async_context(stdio_client(params, errlog=_errlog()))
             session = await self._stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             self.sessions[name] = session
