@@ -18,7 +18,9 @@ REGISTERED_SERVERS = {
 class McpHub:
     def __init__(self, servers=REGISTERED_SERVERS):
         self._servers = servers
-        self._loop = asyncio.new_event_loop()
+        # Windows: subprocesses (stdio MCP servers) need the Proactor loop, but
+        # uvicorn --reload switches the default policy to Selector. Be explicit.
+        self._loop = asyncio.ProactorEventLoop() if sys.platform == "win32" else asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
         self._stack = AsyncExitStack()
