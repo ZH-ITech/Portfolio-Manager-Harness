@@ -1,7 +1,9 @@
-# Production stack for one EC2 instance (Jira PMH-19).
+# Production stack for one EC2 instance (Jira PMH-19, PMH-16).
 #   cd deploy && docker compose -f docker-compose.prod.yml up -d --build
 # Only Caddy is reachable from the internet (ports 80/443). The app, worker and
 # Redis stay on the private Docker network, so /internal/tools is never public.
+# The sandbox lives on `sandbox_net`, an internal network with no internet access:
+# it can reach only the worker (which sends code) and web (the PTC tool proxy).
 name: pmh
 
 x-app: &app
@@ -13,7 +15,9 @@ x-app: &app
     REDIS_URL: redis://redis:6379/0
     DB_PATH: /app/data/harness.db
     PTC_PROXY_URL: http://web:8000/internal/tools
+    SANDBOX_URL: http://sandbox:8100
   volumes: [data:/app/data]
+  networks: [default, sandbox_net]
   logging:
     driver: json-file
     options: { max-size: "10m", max-file: "3" }
@@ -40,18 +44,51 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    depends_on: [redis]
+    depends_on: [redis, sandbox]
 
   worker:
     <<: *app
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
-    depends_on: [redis, web]
+    depends_on: [redis, web, sandbox]
+
+  sandbox:
+    build: ..
+    command: python -m app.sandbox.server
+    restart: unless-stopped
+    # No env_file: the sandbox never sees API keys or other secrets.
+    environment:
+      PTC_PROXY_URL: http://web:8000/internal/tools
+      SANDBOX_BIND: 0.0.0.0
+      SANDBOX_PORT: "8100"
+      SANDBOX_TIMEOUT_S: "20"
+      SANDBOX_MEMORY_MB: "512"
+    networks: [sandbox_net]          # internal only: no route to the internet
+    read_only: true
+    tmpfs: ["/tmp:size=64m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8100/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes: [redis_data:/data]
+
+networks:
+  default: {}
+  sandbox_net:
+    internal: true
 
 volumes:
   data:

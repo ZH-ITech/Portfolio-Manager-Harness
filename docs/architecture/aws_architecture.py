@@ -19,7 +19,7 @@ from diagrams.programming.framework import Fastapi
 from diagrams.programming.language import Python
 
 graph = {"fontsize": "20", "fontname": "Helvetica", "pad": "0.4", "nodesep": "0.55", "ranksep": "0.9",
-         "label": "Portfolio Manager Harness: AWS architecture\nSolid = planned deployment (Jira PMH-19): one EC2 instance running docker compose   "
+         "label": "Portfolio Manager Harness: AWS architecture\nSolid = deployed (live at 3-105-220-208.sslip.io): one EC2 instance running docker compose   "
                   "Dashed grey = scale-out path (not deployed)", "labelloc": "t", "splines": "spline"}
 node = {"fontsize": "12", "fontname": "Helvetica"}
 edge = {"fontsize": "11", "fontname": "Helvetica"}
@@ -39,8 +39,8 @@ with Diagram("", filename="aws_architecture", show=False, direction="LR",
         repo = Github("GitHub repo\nPRs + reviews")
         ci = GithubActions("GitHub Actions\nlint, tests, docker build")
 
-    with Cluster("AWS Cloud (region, e.g. ap-south-1)"):
-        dns = Route53("Route 53\nDNS")
+    with Cluster("AWS Cloud (ap-southeast-2, Sydney)"):
+        dns = Route53("DNS: sslip.io (free)\nRoute 53 if a custom\ndomain is added")
         params = SystemsManagerParameterStore("Secrets: .env on server (chmod 600)\nSSM Parameter Store: planned")
         logs = CloudwatchLogs("Logs: docker (rotated)\nCloudWatch Logs: planned")
 
@@ -51,7 +51,7 @@ with Diagram("", filename="aws_architecture", show=False, direction="LR",
                 queue = Redis("redis\ntask queue")
                 worker = Celery("worker: Celery\nAI harness\n(model, context,\npermissions)")
                 mcp = Python("MCP server\nmarket data +\ncompany info")
-                sandbox = Python("Python sandbox\nisolated container, no secrets,\nnetwork: PTC proxy only (PMH-16)")
+                sandbox = Python("sandbox container\ninternal network (no internet),\nno secrets, read-only")
             disk = ElasticBlockStoreEBSVolume("EBS volume\nsaved results,\nconversations, audit log")
 
         with Cluster("Scale-out path (not deployed)"):

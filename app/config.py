@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     celery_eager: bool = True
     db_path: str = "data/harness.db"
     sandbox_timeout_s: int = 20
+    sandbox_url: str = ""               # set in production: the isolated sandbox service
     sandbox_memory_mb: int = 512
     ptc_proxy_url: str = "http://127.0.0.1:8000/internal/tools"
     ptc_shared_secret: str = "change-me"

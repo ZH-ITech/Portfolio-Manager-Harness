@@ -27,8 +27,11 @@ limits and a scrubbed environment. Each run gets `ptc.py` (`call_tool`, `prices`
 `perf.py` and `fa.py` from `app/analysis/`. `call_tool` reaches registered MCP tools through
 `/internal/tools/{name}`, which checks a per-run HMAC token and logs each call.
 
-Next step (PMH-16): run the same `run_code()` interface in a container with network limited to the
-PTC proxy.
+In production the sandbox is its own container (`app/sandbox/server.py`, `SANDBOX_URL`). It sits on
+`sandbox_net`, a Docker network marked `internal`, so it has **no internet access**: it can reach only
+the worker (which sends code) and web (the PTC proxy). It gets no `.env` (no API keys), a read-only
+filesystem, all Linux capabilities dropped, and process and memory caps. In development, with no
+`SANDBOX_URL`, the same code runs in a local isolated process.
 
 ## Background processing
 `app/worker.py`: Redis broker, `acks_late`, time limits, automatic retries with exponential backoff for

@@ -62,6 +62,30 @@ def _clean_env(workdir: str, ptc_token: str) -> dict:
 
 def run_code(code: str, ptc_token: str = "", timeout_s: int | None = None,
              mem_mb: int | None = None) -> dict:
+    """Run code in the sandbox service when SANDBOX_URL is set (production: a separate,
+    network-isolated container), otherwise in a local isolated process (development)."""
+    if settings.sandbox_url:
+        return _run_remote(code, ptc_token, timeout_s, mem_mb)
+    return run_local(code, ptc_token, timeout_s, mem_mb)
+
+
+def _run_remote(code, ptc_token, timeout_s, mem_mb) -> dict:
+    import httpx
+    t = timeout_s or settings.sandbox_timeout_s
+    try:
+        r = httpx.post(f"{settings.sandbox_url.rstrip('/')}/run", timeout=t + 15,
+                       json={"code": code, "ptc_token": ptc_token, "timeout_s": t, "mem_mb": mem_mb})
+        if r.status_code == 200:
+            return r.json()
+        return {"status": "error", "returncode": None, "stdout": "", "duration_s": 0,
+                "stderr": f"Sandbox rejected the request (HTTP {r.status_code}): {r.text[:300]}"}
+    except httpx.HTTPError as e:
+        return {"status": "error", "returncode": None, "stdout": "", "duration_s": 0,
+                "stderr": f"Sandbox service unavailable: {type(e).__name__}. Try again shortly."}
+
+
+def run_local(code: str, ptc_token: str = "", timeout_s: int | None = None,
+              mem_mb: int | None = None) -> dict:
     timeout_s = timeout_s or settings.sandbox_timeout_s
     mem_mb = mem_mb or settings.sandbox_memory_mb
     workdir = tempfile.mkdtemp(prefix="sbx_")
