@@ -1,0 +1,60 @@
+# Production stack for one EC2 instance (Jira PMH-19).
+#   cd deploy && docker compose -f docker-compose.prod.yml up -d --build
+# Only Caddy is reachable from the internet (ports 80/443). The app, worker and
+# Redis stay on the private Docker network, so /internal/tools is never public.
+name: pmh
+
+x-app: &app
+  build: ..
+  env_file: ../.env
+  restart: unless-stopped
+  environment:
+    CELERY_EAGER: "false"
+    REDIS_URL: redis://redis:6379/0
+    DB_PATH: /app/data/harness.db
+    PTC_PROXY_URL: http://web:8000/internal/tools
+  volumes: [data:/app/data]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env, e.g. 13-201-5-7.sslip.io}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web]
+
+  web:
+    <<: *app
+    # trust X-Forwarded-For from Caddy so per-user rate limits see real client IPs
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on: [redis]
+
+  worker:
+    <<: *app
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    depends_on: [redis, web]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes: [redis_data:/data]
+
+volumes:
+  data:
+  redis_data:
+  caddy_data:
+  caddy_config:

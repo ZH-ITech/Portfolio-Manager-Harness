@@ -75,8 +75,9 @@ loop (self-debugging, blocked tools, usage limits), conversation context, the ch
 failures, rate limit), chart endpoints, outage handling, sandbox limits and PTC tokens.
 
 ## Deploy
-One EC2 instance (or any VM) running `docker compose`. Set the model provider keys, `PTC_SHARED_SECRET`
-and `CELERY_EAGER=false` as secrets on the host, never in Git. See Jira PMH-19.
+One AWS EC2 instance running `deploy/docker-compose.prod.yml`: Caddy (automatic HTTPS) in front of
+FastAPI, a Celery worker and Redis. Step-by-step guide: [docs/DEPLOY.md](docs/DEPLOY.md).
+Merges to `main` that pass CI redeploy automatically once the server secrets are set.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Branch per Jira issue (`PMH-14-...`), key in every commit,

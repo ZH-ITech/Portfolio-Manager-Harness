@@ -1,0 +1,39 @@
+name: Deploy
+# Redeploys the EC2 server after CI passes on main (Jira PMH-19).
+# Needs repository secrets: EC2_HOST (Elastic IP), EC2_USER (ubuntu), EC2_SSH_KEY (private key).
+# Without them the job is skipped, so forks and early PRs are unaffected.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: { group: deploy, cancel-in-progress: false }
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      HOST: ${{ secrets.EC2_HOST }}
+      USER: ${{ secrets.EC2_USER }}
+    steps:
+      - name: Skip if server secrets are not set
+        id: check
+        run: |
+          if [ -z "$HOST" ]; then echo "EC2_HOST not set; skipping deploy"; echo "run=false" >> "$GITHUB_OUTPUT"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Deploy over SSH
+        if: steps.check.outputs.run == 'true'
+        env:
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
+          ssh -i key.pem -o StrictHostKeyChecking=accept-new "${USER:-ubuntu}@$HOST" 'bash ~/pmh/deploy/redeploy.sh'
+          rm -f key.pem
+      - name: Smoke test
+        if: steps.check.outputs.run == 'true'
+        run: |
+          sleep 20
+          curl -fsS --retry 5 --retry-delay 10 "https://${{ secrets.PUBLIC_HOST || secrets.EC2_HOST }}/api/health" || \
+          curl -fsS --retry 3 "http://$HOST/api/health"
