@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Stock Assistant · Portfolio Manager Harness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{--bg:#f6f4ef;--panel:#fffdf8;--side:#efece4;--ink:#1d1f21;--muted:#6b6a64;--rule:#ddd8cb;--up:#1f7a4d;--down:#b3412e;--accent:#2b4c7e;--accent-ink:#fff;--user:#e7ecf4;
+ --sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#131518;--panel:#1a1d21;--side:#16181b;--ink:#e7e3d9;--muted:#9a978d;--rule:#2d3136;--up:#4cc38a;--down:#ef7a63;--accent:#8fb3ef;--accent-ink:#0e1520;--user:#222a36}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);display:grid;grid-template-columns:260px 1fr}
+@media (max-width:820px){body{grid-template-columns:1fr}aside{display:none}}
+aside{background:var(--side);border-right:1px solid var(--rule);padding:16px;overflow:auto}
+aside h1{font-size:15px;margin:0 0 4px}aside .sub{font-size:12px;color:var(--muted);margin-bottom:14px}
+.new{width:100%;padding:8px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:6px;font:600 14px var(--sans);cursor:pointer}
+.hist{list-style:none;padding:0;margin:14px 0 0}.hist li{padding:7px 8px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist li:hover,.hist li.on{background:var(--panel)}
+main{display:flex;flex-direction:column;height:100vh;min-width:0}
+#thread{flex:1;overflow:auto;padding:24px clamp(12px,4vw,48px)}
+.wrap{max-width:900px;margin:0 auto}
+.msg{margin:0 0 22px}.user{display:flex;justify-content:flex-end}.user div{background:var(--user);padding:9px 14px;border-radius:14px;max-width:75%;white-space:pre-wrap}
+.bot{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:16px 18px}
+.bot p{margin:.2em 0 .8em}.bot ul{margin:.2em 0 .8em;padding-left:20px}.bot code{font:13px var(--mono)}
+.err{border-color:var(--down);color:var(--down)}
+.chart{height:340px;margin:12px 0 4px;border:1px solid var(--rule);border-radius:8px;overflow:hidden}.pane{height:120px;margin:4px 0;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.ctitle{font-size:13px;font-weight:600;margin-top:12px}.legend{font:12px var(--mono);color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
+.tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 9px;border-bottom:1px solid var(--rule);text-align:left;white-space:nowrap}th{cursor:pointer;color:var(--muted);font-weight:500;user-select:none}
+td.n{font-family:var(--mono);text-align:right}
+details{margin-top:10px;font-size:13px;color:var(--muted)}summary{cursor:pointer}details ul{margin:6px 0}
+.trace{font:12px var(--mono);max-height:260px;overflow:auto;border-left:2px solid var(--rule);padding-left:10px}
+.prog{background:var(--panel);border:1px dashed var(--rule);border-radius:12px;padding:14px 18px}
+.bar{height:6px;background:var(--rule);border-radius:3px;margin-top:8px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.empty{text-align:center;color:var(--muted);margin-top:12vh}.empty h2{color:var(--ink);font-size:22px;margin:0 0 6px}
+.sugg{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:18px}.sugg button{border:1px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:18px;padding:7px 13px;font:13px var(--sans);cursor:pointer}
+form{border-top:1px solid var(--rule);padding:12px clamp(12px,4vw,48px)}form .wrap{display:flex;gap:8px}
+textarea{flex:1;resize:none;height:48px;padding:12px 14px;border:1px solid var(--rule);border-radius:12px;background:var(--panel);color:var(--ink);font:15px var(--sans)}
+.send{padding:0 18px;border:0;border-radius:12px;background:var(--accent);color:var(--accent-ink);font:600 14px var(--sans);cursor:pointer}.send:disabled{opacity:.5}
+.note{font-size:11px;color:var(--muted);text-align:center;margin-top:6px}
+</style>
+</head>
+<body>
+<aside>
+  <h1>AI Stock Assistant</h1><div class="sub">Market data, research and analysis in one chat</div>
+  <button class="new" id="new">New chat</button>
+  <ul class="hist" id="hist"></ul>
+</aside>
+<main>
+  <div id="thread"><div class="wrap" id="msgs"></div></div>
+  <form id="f"><div class="wrap"><textarea id="q" placeholder="Ask about any NASDAQ stock…" aria-label="Message"></textarea><button class="send" id="send">Send</button></div>
+  <div class="note">Analysis only, not financial advice. Data is delayed.</div></form>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let cid=null, busy=false;
+const SUGG=["Is AAPL in an uptrend? Show the indicators.","How is MSFT valued compared with its growth?","Compare NVDA, AMD and INTC over the last year.","What if I had invested $1,000 in TSLA two years ago?"];
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PALETTE=["#2b6cb0","#c05621","#2f855a","#805ad5","#b83280"];
+
+function md(t){ // small, safe markdown: paragraphs, bullets, **bold**, `code`
+  const lines=esc(t).split(/\n/);let html="",list=false;
+  for(let l of lines){l=l.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/`([^`]+)`/g,"<code>$1</code>");
+    if(/^\s*[-*] /.test(l)){if(!list){html+="<ul>";list=true}html+="<li>"+l.replace(/^\s*[-*] /,"")+"</li>";continue}
+    if(list){html+="</ul>";list=false} if(l.trim()) html+="<p>"+l.replace(/^#+\s*/,"")+"</p>";}
+  return html+(list?"</ul>":"");
+}
+function scrollEnd(){const t=$("thread");t.scrollTop=t.scrollHeight}
+function add(html,cls){const d=document.createElement("div");d.className="msg "+(cls||"");d.innerHTML=html;$("msgs").appendChild(d);scrollEnd();return d}
+function empty(){ $("msgs").innerHTML=`<div class="empty"><h2>What would you like to analyse?</h2><div>Technical and fundamental analysis, comparisons and what-if scenarios, with sources.</div>
+ <div class="sugg">${SUGG.map(s=>`<button type="button">${esc(s)}</button>`).join("")}</div></div>`;
+ document.querySelectorAll(".sugg button").forEach(b=>b.onclick=()=>{$("q").value=b.textContent;send()});}
+
+function chartBase(el,h){return LightweightCharts.createChart(el,{autoSize:true,height:h,layout:{background:{color:"transparent"},textColor:css("--muted"),fontFamily:"IBM Plex Mono"},
+  grid:{vertLines:{color:css("--rule")},horzLines:{color:css("--rule")}},rightPriceScale:{borderColor:css("--rule")},timeScale:{borderColor:css("--rule")}})}
+async function priceChart(box,c){
+  const ov=(c.overlays||["sma_20","sma_50"]).join(",");
+  const r=await fetch(`/api/market/chart?ticker=${encodeURIComponent(c.ticker)}&period=${c.period}&overlays=${ov}`);
+  if(!r.ok){box.insertAdjacentHTML("beforeend",`<p class="err">Chart unavailable: ${esc((await r.json()).detail)}</p>`);return}
+  const d=await r.json();
+  box.insertAdjacentHTML("beforeend",`<div class="ctitle">${esc(c.title||c.ticker+" price, "+c.period)}</div>`);
+  const el=document.createElement("div");el.className="chart";box.appendChild(el);
+  const ch=chartBase(el,340);
+  const s=ch.addCandlestickSeries({upColor:css("--up"),downColor:css("--down"),borderVisible:false,wickUpColor:css("--up"),wickDownColor:css("--down")});s.setData(d.candles);
+  const v=ch.addHistogramSeries({priceScaleId:"",priceFormat:{type:"volume"},color:"rgba(128,128,128,.35)"});v.priceScale().applyOptions({scaleMargins:{top:.8,bottom:0}});v.setData(d.volume);
+  const leg=[];Object.entries(d.overlays).forEach(([k,pts],i)=>{const col=PALETTE[i%5];ch.addLineSeries({color:col,lineWidth:1.5,priceLineVisible:false,lastValueVisible:false}).setData(pts);leg.push(`<span style="color:${col}">${esc(k.toUpperCase())}</span>`)});
+  ch.timeScale().fitContent();
+  for(const [k,pts] of Object.entries(d.panes)){ if(k==="macd_signal")continue;
+    const pe=document.createElement("div");pe.className="pane";box.appendChild(pe);const pc=chartBase(pe,120);
+    pc.addLineSeries({color:PALETTE[0],lineWidth:1.5,priceLineVisible:false}).setData(pts);
+    if(k==="macd"&&d.panes.macd_signal)pc.addLineSeries({color:PALETTE[1],lineWidth:1.5,priceLineVisible:false}).setData(d.panes.macd_signal);
+    if(k==="rsi_14"){const l=pc.addLineSeries({color:css("--muted"),lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false});const t=pts.map(p=>p.time);l.setData([{time:t[0],value:70},{time:t.at(-1),value:70}]);
+      const l2=pc.addLineSeries({color:css("--muted"),lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false});l2.setData([{time:t[0],value:30},{time:t.at(-1),value:30}])}
+    pc.timeScale().fitContent();leg.push(`<span>${k==="rsi_14"?"RSI 14 pane (30/70)":"MACD pane (line/signal)"}</span>`)}
+  box.insertAdjacentHTML("beforeend",`<div class="legend">${leg.join("")}<span>Volume bars</span><span>Source: ${esc(d.source)}</span></div>`);
+}
+async function compareChart(box,c){
+  const r=await fetch(`/api/market/compare?tickers=${encodeURIComponent((c.tickers||[]).join(","))}&period=${c.period}`);
+  if(!r.ok){box.insertAdjacentHTML("beforeend",`<p class="err">Chart unavailable: ${esc((await r.json()).detail)}</p>`);return}
+  const d=await r.json();
+  box.insertAdjacentHTML("beforeend",`<div class="ctitle">${esc(c.title||"Performance comparison, "+c.period+" (start = 100)")}</div>`);
+  const el=document.createElement("div");el.className="chart";box.appendChild(el);const ch=chartBase(el,340);const leg=[];
+  Object.entries(d.series).forEach(([t,pts],i)=>{const col=PALETTE[i%5];ch.addLineSeries({color:col,lineWidth:2,priceLineVisible:false}).setData(pts);leg.push(`<span style="color:${col}">${esc(t)}</span>`)});
+  ch.timeScale().fitContent();box.insertAdjacentHTML("beforeend",`<div class="legend">${leg.join("")}<span>Source: ${esc(d.source)}</span></div>`);
+}
+function table(box,t){
+  const isNum=v=>typeof v==="number"||(/^-?[\d,.]+%?$/.test(String(v))&&String(v).trim()!=="");
+  const wrap=document.createElement("div");wrap.className="tbl";
+  const render=rows=>wrap.innerHTML=(t.title?`<div class="ctitle">${esc(t.title)}</div>`:"")+`<table><thead><tr>${t.columns.map((c,i)=>`<th data-i="${i}">${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td class="${isNum(v)?"n":""}">${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  let rows=t.rows.slice(),dir=1;render(rows);
+  wrap.addEventListener("click",e=>{const i=e.target.dataset?.i;if(i===undefined)return;dir=-dir;const key=v=>{const n=parseFloat(String(v).replace(/[,%]/g,""));return isNaN(n)?String(v):n};
+    rows.sort((a,b)=>{const x=key(a[i]),y=key(b[i]);return (x>y?1:x<y?-1:0)*dir});render(rows)});
+  box.appendChild(wrap);
+}
+function renderAnswer(a,runId){
+  const box=add(`<div class="bot">${md(a.text||"")}</div>`).firstChild;
+  (async()=>{for(const c of a.charts||[]){try{c.kind==="comparison"?await compareChart(box,c):await priceChart(box,c)}catch(e){box.insertAdjacentHTML("beforeend",`<p class="err">Chart error</p>`)}}
+    for(const t of a.tables||[])table(box,t);
+    const src=(a.sources||[]).map(s=>`<li>${esc(s.source)}${s.fetched_at?" · fetched "+esc(s.fetched_at):""}${s.used_for?" · "+esc(s.used_for):""}</li>`).join("");
+    box.insertAdjacentHTML("beforeend",`<details open><summary>Sources and assumptions</summary><b>Sources</b><ul>${src||"<li>None given</li>"}</ul><b>Assumptions</b><ul>${(a.assumptions||[]).map(x=>`<li>${esc(x)}</li>`).join("")||"<li>None given</li>"}</ul></details>`);
+    if(runId){const d=document.createElement("details");d.innerHTML="<summary>Show the steps the assistant took</summary><div class='trace'>Loading…</div>";
+      d.addEventListener("toggle",async()=>{if(!d.open||d.dataset.loaded)return;d.dataset.loaded=1;const r=await (await fetch(`/api/runs/${runId}`)).json();
+        d.querySelector(".trace").innerHTML=r.events.filter(e=>e.kind!=="model_response"||e.payload.text).map(e=>{const p=e.payload;const what=e.kind==="tool_call"||e.kind==="ptc_call"?`${p.tool} ${JSON.stringify(p.input).slice(0,160)}`:e.kind==="tool_error"||e.kind==="ptc_error"?p.error:e.kind==="model_response"?p.text.slice(0,200):e.kind==="tool_result"&&p.result&&p.result.fetched_at?`${p.tool} data fetched ${p.result.fetched_at}`:"";
+          return `<div>${new Date(e.ts*1000).toLocaleTimeString()} · ${esc(e.agent)} · ${esc(e.kind)} ${esc(what)}</div>`}).join("")});box.appendChild(d)}
+    scrollEnd()})();
+}
+async function poll(runId){
+  const p=add(`<div class="prog"><span class="stage">Queued…</span><div class="bar"><i style="width:3%"></i></div></div>`);
+  while(true){await new Promise(r=>setTimeout(r,1200));
+    let r;try{r=await (await fetch(`/api/runs/${runId}?events=false`)).json()}catch{continue}
+    p.querySelector(".stage").textContent=(r.stage||r.status)+(r.attempts>1?` (attempt ${r.attempts})`:"");p.querySelector("i").style.width=Math.round((r.progress||0)*100)+"%";
+    if(r.status==="done"){p.remove();renderAnswer(r.report,runId);break}
+    if(r.status==="error"){p.remove();add(`<div class="bot err">This analysis failed: ${esc(r.error)}</div>`);break}}
+}
+async function send(){
+  const text=$("q").value.trim();if(!text||busy)return;busy=true;$("send").disabled=true;$("q").value="";
+  if($("msgs").querySelector(".empty"))$("msgs").innerHTML="";
+  add(`<div>${esc(text)}</div>`,"user");
+  try{const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text,conversation_id:cid})});
+    const d=await r.json();if(!r.ok)throw new Error(d.detail||"request failed");cid=d.conversation_id;loadHist();await poll(d.run_id)}
+  catch(e){add(`<div class="bot err">${esc(e.message)}</div>`)}
+  busy=false;$("send").disabled=false;$("q").focus();loadHist();
+}
+async function openConv(id){cid=id;$("msgs").innerHTML="";const d=await (await fetch(`/api/conversations/${id}`)).json();
+  for(const m of d.messages){if(m.role==="user")add(`<div>${esc(m.content)}</div>`,"user");else if(m.role==="assistant")renderAnswer(m.content,m.run_id);else add(`<div class="bot err">${esc(m.content.text)}</div>`)}
+  loadHist();}
+async function loadHist(){const list=await (await fetch("/api/conversations")).json();
+  $("hist").innerHTML=list.map(c=>`<li data-id="${c.id}" class="${c.id===cid?"on":""}" title="${esc(c.title)}">${esc(c.title)}</li>`).join("");
+  $("hist").querySelectorAll("li").forEach(li=>li.onclick=()=>!busy&&openConv(li.dataset.id));}
+$("f").onsubmit=e=>{e.preventDefault();send()};
+$("q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send()}});
+$("new").onclick=()=>{if(busy)return;cid=null;empty();loadHist()};
+empty();loadHist();
+</script>
+</body>
+</html>

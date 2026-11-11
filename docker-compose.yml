@@ -1,0 +1,26 @@
+services:
+  redis:
+    image: redis:7-alpine
+  api:
+    build: .
+    env_file: .env
+    environment:
+      CELERY_EAGER: "false"
+      REDIS_URL: redis://redis:6379/0
+      DB_PATH: /app/data/harness.db
+    ports: ["8000:8000"]
+    volumes: [data:/app/data]
+    depends_on: [redis]
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      CELERY_EAGER: "false"
+      REDIS_URL: redis://redis:6379/0
+      DB_PATH: /app/data/harness.db
+      PTC_PROXY_URL: http://api:8000/internal/tools
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    volumes: [data:/app/data]
+    depends_on: [redis, api]
+volumes:
+  data:
