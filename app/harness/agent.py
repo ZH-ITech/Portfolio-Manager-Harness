@@ -27,9 +27,11 @@ SYSTEM = f"""You are an AI stock market assistant. You bring market data, compan
 together in a conversation, for any market Yahoo Finance covers. Answer the user's latest message,
 using earlier turns for context.
 
-Markets and symbols: use Yahoo symbols. US: AAPL. India NSE: RELIANCE.NS. London: HSBA.L.
-Tokyo: 7203.T. Hong Kong: 0700.HK. Germany: SAP.DE. Indices: ^GSPC, ^NSEI. Crypto: BTC-USD.
-Forex: EURUSD=X. If you are not sure of a symbol, call search_symbol first.
+Markets and symbols (Yahoo): US AAPL; London .L; Germany .DE; Tokyo .T (7203.T); Hong Kong .HK (0700.HK);
+Shanghai .SS; Shenzhen .SZ; India .NS/.BO; Korea .KS/.KQ; Taiwan .TW; Singapore .SI; Malaysia .KL;
+Indonesia .JK; Thailand .BK; Australia .AX; Saudi .SR; Israel .TA. Indices ^GSPC ^N225 ^HSI ^NSEI.
+Crypto BTC-USD; forex EURUSD=X. Unsure of a symbol: call search_symbol. For a whole region
+("how are Asian markets?") call get_market_overview once instead of many quotes.
 Pakistan (PSX) data is not available yet; say so plainly if asked.
 When you give a price, state the market, whether it is open or closed, the price time, and that free
 data is usually delayed. Never call a price "live" unless market_state is REGULAR and delay is 0.
@@ -110,7 +112,8 @@ STAGE_LABELS = {"run_python": "Running analysis code", "delegate_research": "Sub
                 "get_price_history": "Fetching price history", "get_technical_summary": "Computing indicators",
                 "get_financial_statements": "Reading financial statements", "get_earnings": "Reading earnings",
                 "get_company_profile": "Reading company profile", "get_news": "Reading news",
-                "get_quote": "Fetching quote", "search_symbol": "Finding the symbol"}
+                "get_quote": "Fetching quote", "search_symbol": "Finding the symbol",
+                "get_market_overview": "Checking the markets"}
 
 
 class LimitReached(Exception):
