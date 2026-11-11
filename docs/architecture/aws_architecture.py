@@ -41,13 +41,13 @@ with Diagram("", filename="aws_architecture", show=False, direction="LR",
 
     with Cluster("AWS Cloud (region, e.g. ap-south-1)"):
         dns = Route53("Route 53\nDNS")
-        params = SystemsManagerParameterStore("SSM Parameter Store\nLLM_API_KEY, secrets")
-        logs = CloudwatchLogs("CloudWatch Logs\napp + worker logs")
+        params = SystemsManagerParameterStore("Secrets: .env on server (chmod 600)\nSSM Parameter Store: planned")
+        logs = CloudwatchLogs("Logs: docker (rotated)\nCloudWatch Logs: planned")
 
         with Cluster("VPC  /  public subnet  /  security group: 443 only"):
             eip = EC2ElasticIpAddress("Elastic IP")
             with Cluster("EC2 instance  (docker compose)"):
-                api = Fastapi("web: FastAPI\nchat API, UI,\nPTC proxy")
+                api = Fastapi("web: FastAPI\nchat API, UI\n(behind Caddy HTTPS;\n/internal blocked)")
                 queue = Redis("redis\ntask queue")
                 worker = Celery("worker: Celery\nAI harness\n(model, context,\npermissions)")
                 mcp = Python("MCP server\nmarket data +\ncompany info")
