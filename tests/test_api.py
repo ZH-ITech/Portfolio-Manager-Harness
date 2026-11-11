@@ -83,3 +83,12 @@ def test_quote_endpoint(tmp_db, monkeypatch):
         raise market.TickerNotFound("No quote")
     monkeypatch.setattr(market.YahooProvider, "quote", missing)
     assert c.get("/api/market/quote?ticker=ZZZZ").status_code == 404
+
+
+def test_portfolio_upload_endpoint(tmp_db, monkeypatch):
+    c = _client(tmp_db, monkeypatch)
+    r = c.post("/api/portfolio/upload", files={"file": ("p.csv", b"ticker,shares,avg_cost\naapl,10,150\nRELIANCE.NS,5,\n", "text/csv")})
+    assert r.status_code == 200
+    h = r.json()["holdings"]
+    assert h[0] == {"ticker": "AAPL", "shares": 10.0, "avg_cost": 150.0} and h[1]["ticker"] == "RELIANCE.NS"
+    assert c.post("/api/portfolio/upload", files={"file": ("p.csv", b"name\nx\n", "text/csv")}).status_code == 400

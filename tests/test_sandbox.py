@@ -42,3 +42,36 @@ def test_helper_modules_available_in_sandbox():
 def test_unicode_output():
     r = run_code("print('PKR ₨ and € ok')")
     assert "€" in r["stdout"]
+
+
+def test_sandbox_service_runs_code_over_http(monkeypatch):
+    """Production path: the worker sends code to the isolated sandbox service."""
+    import threading
+
+    from app.sandbox import runner, server
+    srv = server.serve("127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setattr(runner.settings, "sandbox_url", f"http://127.0.0.1:{srv.server_address[1]}")
+        r = runner.run_code("import perf\nprint(6*7)")
+        assert r["status"] == "ok" and r["stdout"].strip() == "42"
+        bad = runner.run_code("1/0")
+        assert bad["status"] == "error" and "ZeroDivisionError" in bad["stderr"]
+    finally:
+        srv.shutdown()
+
+
+def test_sandbox_service_down_gives_clear_error(monkeypatch):
+    from app.sandbox import runner
+    monkeypatch.setattr(runner.settings, "sandbox_url", "http://127.0.0.1:9")
+    r = runner.run_code("print(1)")
+    assert r["status"] == "error" and "unavailable" in r["stderr"]
+
+
+def test_prod_compose_isolates_sandbox():
+    import pytest
+    yaml = pytest.importorskip("yaml")
+    d = yaml.safe_load(open("deploy/docker-compose.prod.yml"))
+    sb = d["services"]["sandbox"]
+    assert sb["networks"] == ["sandbox_net"] and d["networks"]["sandbox_net"]["internal"] is True
+    assert "env_file" not in sb and sb["read_only"] is True and sb["cap_drop"] == ["ALL"]

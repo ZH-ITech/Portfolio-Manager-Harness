@@ -4,6 +4,8 @@ An AI stock market assistant that brings **market data, company research and ana
 conversational interface**. Ask in plain language; get an explanation with interactive charts or tables,
 the sources used (with timestamps) and the assumptions made.
 
+**Live demo:** https://3-105-220-208.sslip.io
+
 > Analysis only, not financial advice. The assistant is read-only: it never trades.
 
 ## What you can ask
