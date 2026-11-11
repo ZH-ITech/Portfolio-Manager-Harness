@@ -25,7 +25,8 @@ Chat UI ──▶ FastAPI /api/chat ──▶ Celery task (Redis) ──▶ Harn
                                                             ├─ Python sandbox (ta, perf, fa, PTC)
                                                             └─ sub-agents (smaller/cheaper model)
 ```
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). AWS diagram: [docs/architecture/aws_architecture.png](docs/architecture/aws_architecture.png)
+(generated from `docs/architecture/aws_architecture.py`).
 
 | Path | Purpose |
 |---|---|
