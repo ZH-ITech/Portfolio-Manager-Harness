@@ -61,11 +61,25 @@ const SUGG=["Is AAPL in an uptrend? Show the indicators.","How is MSFT valued co
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const PALETTE=["#2b6cb0","#c05621","#2f855a","#805ad5","#b83280"];
 
-function md(t){ // small, safe markdown: paragraphs, bullets, **bold**, `code`
-  const lines=esc(t).split(/\n/);let html="",list=false;
-  for(let l of lines){l=l.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/`([^`]+)`/g,"<code>$1</code>");
-    if(/^\s*[-*] /.test(l)){if(!list){html+="<ul>";list=true}html+="<li>"+l.replace(/^\s*[-*] /,"")+"</li>";continue}
-    if(list){html+="</ul>";list=false} if(l.trim()) html+="<p>"+l.replace(/^#+\s*/,"")+"</p>";}
+function md(t){ // small, safe markdown: headings, paragraphs, bullets, pipe tables, **bold**, `code`
+  const inline=l=>l.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/`([^`]+)`/g,"<code>$1</code>");
+  const cells=l=>l.trim().replace(/^\|/,"").replace(/\|$/,"").split("|").map(c=>inline(c.trim()));
+  const isNum=v=>/^[-+$]?[\d,.]+%?$/.test(v.replace(/<[^>]+>/g,"").trim());
+  const lines=esc(t).split(/\n/);let html="",list=false,i=0;
+  while(i<lines.length){const l=lines[i];
+    if(/^\s*\|.*\|\s*$/.test(l)){ // pipe table
+      if(list){html+="</ul>";list=false}
+      const rows=[];while(i<lines.length&&/^\s*\|.*\|\s*$/.test(lines[i])){rows.push(lines[i]);i++}
+      const body=rows.filter(r=>!/^\s*\|[\s:|-]+\|\s*$/.test(r));
+      if(body.length){const head=cells(body[0]);
+        html+=`<div class="tbl"><table><thead><tr>${head.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${
+          body.slice(1).map(r=>`<tr>${cells(r).map(c=>`<td class="${isNum(c)?"n":""}" style="white-space:normal">${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`}
+      continue}
+    const x=inline(l);
+    if(/^\s*[-*] /.test(x)){if(!list){html+="<ul>";list=true}html+="<li>"+x.replace(/^\s*[-*] /,"")+"</li>";i++;continue}
+    if(list){html+="</ul>";list=false}
+    if(/^#{1,6}\s/.test(x))html+=`<p><b>${x.replace(/^#+\s*/,"")}</b></p>`;else if(x.trim())html+="<p>"+x+"</p>";
+    i++}
   return html+(list?"</ul>":"");
 }
 function scrollEnd(){const t=$("thread");t.scrollTop=t.scrollHeight}

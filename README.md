@@ -18,7 +18,7 @@ Follow-up questions keep context ("now add GOOGL").
 
 ## How it works
 ```
-Chat UI ──▶ FastAPI /api/chat ──▶ Celery task (Redis) ──▶ Harness (open-source LLM, free)
+Chat UI ──▶ FastAPI /api/chat ──▶ Celery task (Redis) ──▶ Harness (open-weight LLM, free)
    ▲  progress, saved results          │ retries            ├─ permissions: allow-lists, limits
    │                                   ▼                    ├─ MCP tools: prices, profile, statements,
    └──── /api/market/chart|compare   audit log + history    │  earnings, news, technical summary
@@ -45,7 +45,7 @@ The harness runs on any OpenAI-compatible API, so it works with **free, open-sou
 
 | Option | Cost | Model | Setup |
 |---|---|---|---|
-| **Groq** (default) | Free tier, no card | Llama 3.3 70B (open source) | Key from console.groq.com |
+| **Groq** (default) | Free tier, no card | GPT-OSS 120B / 20B (open-weight) | Key from console.groq.com |
 | **Ollama** | Free, offline | e.g. Qwen 2.5 7B (open source) | Install Ollama, `ollama pull qwen2.5:7b` |
 | Claude | Paid | Claude Sonnet / Haiku | `LLM_PROVIDER=anthropic` |
 

@@ -15,7 +15,7 @@
 ## Harness responsibilities
 | Concern | Implementation |
 |---|---|
-| Model | `app/harness/llm.py`: `LLM_PROVIDER=openai` (default; any OpenAI-compatible server: Groq free tier with Llama 3.3 70B, Ollama offline, OpenRouter) or `anthropic` (Claude). `MAIN_MODEL` (orchestrator), `SUBAGENT_MODEL` (sub-agents, compaction). History is kept in one format and translated per provider; rate limits are retried. |
+| Model | `app/harness/llm.py`: `LLM_PROVIDER=openai` (default; any OpenAI-compatible server: Groq free tier with GPT-OSS 120B/20B, Ollama offline, OpenRouter) or `anthropic` (Claude). `MAIN_MODEL` (orchestrator), `SUBAGENT_MODEL` (sub-agents, compaction). History is kept in one format and translated per provider; rate limits are retried. |
 | Context | last `HISTORY_TURNS` turns; large tool results clipped; history compacted when over budget |
 | Permissions | per-agent tool allow-list; read-only tools only; `MAX_TOOL_CALLS`, `MAX_SANDBOX_RUNS` per answer; API rate limit |
 | Workflow | tool-use loop with errors returned to the model for self-correction; plain-text replies accepted as the answer; forced answer at the step limit |

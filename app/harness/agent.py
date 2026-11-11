@@ -40,10 +40,12 @@ Tools:
 - delegate_research: hand a narrow, self-contained task (e.g. headline review) to a cheaper sub-agent.
 
 Finish by calling `answer` exactly once:
-- text: a clear explanation in plain language (short paragraphs, markdown allowed), defining any jargon.
+- text: a clear explanation in plain language (short paragraphs, bullets allowed), defining any jargon.
+  For a stock's price or trend, also request a price chart.
 - charts: request charts instead of pasting data. kind "price" (one ticker; overlays from sma_20, sma_50,
   sma_200, ema_20, bollinger; panes from rsi, macd) or kind "comparison" (2-5 tickers, normalised to 100).
-- tables: small tables of the key numbers you computed (financials, comparisons, scenario results).
+- tables: small tables of the key numbers you computed (indicators, financials, comparisons, scenario results).
+  Put tables here, not as markdown inside text.
 - sources and assumptions: always filled in.
 
 {RULES}"""
