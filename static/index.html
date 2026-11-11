@@ -26,7 +26,11 @@ main{display:flex;flex-direction:column;height:100vh;min-width:0}
 .bot p{margin:.2em 0 .8em}.bot ul{margin:.2em 0 .8em;padding-left:20px}.bot code{font:13px var(--mono)}
 .err{border-color:var(--down);color:var(--down)}
 .chart{height:340px;margin:12px 0 4px;border:1px solid var(--rule);border-radius:8px;overflow:hidden}.pane{height:120px;margin:4px 0;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
-.ctitle{font-size:13px;font-weight:600;margin-top:12px}.legend{font:12px var(--mono);color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
+.ctitle{font-size:13px;font-weight:600;margin-top:12px}
+.live{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-top:10px;font:13px var(--mono);color:var(--muted)}
+.live .px{font:600 20px var(--sans);color:var(--ink)}.live .up{color:var(--up)}.live .down{color:var(--down)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:5px}.dot.on{background:var(--up);animation:pulse 2s infinite}
+@keyframes pulse{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.dot.on{animation:none}}.legend{font:12px var(--mono);color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
 .tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{padding:6px 9px;border-bottom:1px solid var(--rule);text-align:left;white-space:nowrap}th{cursor:pointer;color:var(--muted);font-weight:500;user-select:none}
 td.n{font-family:var(--mono);text-align:right}
@@ -50,14 +54,14 @@ textarea{flex:1;resize:none;height:48px;padding:12px 14px;border:1px solid var(-
 </aside>
 <main>
   <div id="thread"><div class="wrap" id="msgs"></div></div>
-  <form id="f"><div class="wrap"><textarea id="q" placeholder="Ask about any NASDAQ stock…" aria-label="Message"></textarea><button class="send" id="send">Send</button></div>
-  <div class="note">Analysis only, not financial advice. Data is delayed.</div></form>
+  <form id="f"><div class="wrap"><textarea id="q" placeholder="Ask about any stock, index, crypto or currency, in any market…" aria-label="Message"></textarea><button class="send" id="send">Send</button></div>
+  <div class="note">Analysis only, not financial advice. Free market data is usually delayed; each answer shows the price time.</div></form>
 </main>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let cid=null, busy=false;
-const SUGG=["Is AAPL in an uptrend? Show the indicators.","How is MSFT valued compared with its growth?","Compare NVDA, AMD and INTC over the last year.","What if I had invested $1,000 in TSLA two years ago?"];
+const SUGG=["Is AAPL in an uptrend? Show the indicators.","What is Reliance Industries trading at in India right now?","How is MSFT valued compared with its growth?","Compare NVDA, AMD and INTC over the last year.","What if I had invested $1,000 in TSLA two years ago?"];
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const PALETTE=["#2b6cb0","#c05621","#2f855a","#805ad5","#b83280"];
 
@@ -90,11 +94,26 @@ function empty(){ $("msgs").innerHTML=`<div class="empty"><h2>What would you lik
 
 function chartBase(el,h){return LightweightCharts.createChart(el,{autoSize:true,height:h,layout:{background:{color:"transparent"},textColor:css("--muted"),fontFamily:"IBM Plex Mono"},
   grid:{vertLines:{color:css("--rule")},horzLines:{color:css("--rule")}},rightPriceScale:{borderColor:css("--rule")},timeScale:{borderColor:css("--rule")}})}
+function liveBadge(box,ticker){
+  const el=document.createElement("div");el.className="live";el.setAttribute("aria-live","polite");box.appendChild(el);
+  const fmtTime=t=>t?new Date(t).toLocaleString([], {hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):"time unknown";
+  async function tick(){
+    if(!document.body.contains(el)){clearInterval(timer);return}
+    try{const r=await fetch(`/api/market/quote?ticker=${encodeURIComponent(ticker)}`);if(!r.ok)throw 0;const q=await r.json();
+      const open=q.market_state==="REGULAR",delay=q.delay_minutes;
+      const freshness=open?(delay?`delayed ${delay} min`:"real-time or near real-time"):`market ${String(q.market_state||"closed").toLowerCase()}`;
+      const ch=q.change_pct==null?"":`<span class="${q.change_pct>=0?"up":"down"}">${q.change_pct>=0?"+":""}${q.change_pct}%</span>`;
+      el.innerHTML=`<span><span class="dot ${open?"on":""}"></span>${esc(q.name||q.ticker)}</span><span class="px">${esc(q.price)} ${esc(q.currency||"")}</span>${ch}
+        <span>as of ${esc(fmtTime(q.price_time))} · ${esc(freshness)}${q.exchange?" · "+esc(q.exchange):""}</span><span>refreshes every 30 s</span>`}
+    catch{el.textContent="Live price unavailable right now."}}
+  const timer=setInterval(tick,30000);tick();
+}
 async function priceChart(box,c){
   const ov=(c.overlays||["sma_20","sma_50"]).join(",");
   const r=await fetch(`/api/market/chart?ticker=${encodeURIComponent(c.ticker)}&period=${c.period}&overlays=${ov}`);
   if(!r.ok){box.insertAdjacentHTML("beforeend",`<p class="err">Chart unavailable: ${esc((await r.json()).detail)}</p>`);return}
   const d=await r.json();
+  liveBadge(box,c.ticker);
   box.insertAdjacentHTML("beforeend",`<div class="ctitle">${esc(c.title||c.ticker+" price, "+c.period)}</div>`);
   const el=document.createElement("div");el.className="chart";box.appendChild(el);
   const ch=chartBase(el,340);

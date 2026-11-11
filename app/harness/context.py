@@ -34,11 +34,27 @@ def _render(messages: list) -> str:
     return "\n".join(parts)
 
 
-def maybe_compact(client, messages: list, run_log) -> list:
+def shrink_tool_results(messages: list, limit: int = 600) -> list:
+    """Cut every tool result except those in the latest message to `limit` characters."""
+    out = []
+    for i, m in enumerate(messages):
+        if i < len(messages) - 1 and m["role"] == "user" and isinstance(m["content"], list):
+            blocks = []
+            for b in m["content"]:
+                b = b if isinstance(b, dict) else b.model_dump()
+                if b.get("type") == "tool_result" and isinstance(b.get("content"), str) and len(b["content"]) > limit:
+                    b = {**b, "content": b["content"][:limit] + "...[shortened to fit the model's limit]"}
+                blocks.append(b)
+            m = {**m, "content": blocks}
+        out.append(m)
+    return out
+
+
+def maybe_compact(client, messages: list, run_log, force: bool = False) -> list:
     """If history is over budget, summarise the middle and keep the original
     request plus the most recent assistant/tool exchange. Keeps tool_use /
     tool_result pairs intact so the API accepts the history."""
-    if size(messages) < settings.compaction_char_budget or len(messages) < 6:
+    if len(messages) < 6 or (not force and size(messages) < settings.compaction_char_budget):
         return messages
     k = len(messages) - 4
     while k > 1 and messages[k]["role"] != "assistant":

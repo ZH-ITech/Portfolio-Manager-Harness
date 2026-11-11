@@ -27,8 +27,11 @@ class Settings(BaseSettings):
     max_tool_calls: int = 30          # per answer (permissions / cost limit)
     max_sandbox_runs: int = 8         # per answer
     history_turns: int = 10           # previous user/assistant turns sent to the model
-    compaction_char_budget: int = 60_000   # rough proxy for context size
-    tool_result_char_limit: int = 6_000    # what the model sees; full result goes to audit log
+    # Context budget. Free tiers cap tokens per minute PER REQUEST (Groq: 8,000 for gpt-oss-120b,
+    # counting max_tokens too), so keep requests small. The full tool results stay in the audit log.
+    compaction_char_budget: int = 14_000   # summarise history above this (~3.5k tokens)
+    tool_result_char_limit: int = 2_000    # what the model sees per tool result
+    llm_max_tokens: int = 2048             # reply budget per model call
 
 
 settings = Settings()

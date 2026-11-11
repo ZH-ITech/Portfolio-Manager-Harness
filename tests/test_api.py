@@ -69,3 +69,17 @@ def test_data_source_outage_returns_503(tmp_db, monkeypatch):
     market._cache.clear()
     r = c.get("/api/market/chart?ticker=ZZZZ&period=1y")
     assert r.status_code == 503 and "unavailable" in r.json()["detail"]
+
+
+def test_quote_endpoint(tmp_db, monkeypatch):
+    c = _client(tmp_db, monkeypatch)
+    from app.data import market
+    monkeypatch.setattr(market.YahooProvider, "quote", lambda self, t: {"ticker": t.upper(), "price": 10.0,
+                        "market_state": "REGULAR", "delay_minutes": 0, "price_time": "2026-11-11T15:00:00+00:00"})
+    q = c.get("/api/market/quote?ticker=btc-usd").json()
+    assert q["ticker"] == "BTC-USD" and q["price"] == 10.0
+
+    def missing(self, t):
+        raise market.TickerNotFound("No quote")
+    monkeypatch.setattr(market.YahooProvider, "quote", missing)
+    assert c.get("/api/market/quote?ticker=ZZZZ").status_code == 404

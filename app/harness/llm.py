@@ -24,6 +24,10 @@ class LLMTransientError(RuntimeError):
     """Rate limit, timeout or server error; safe to retry later."""
 
 
+class LLMRequestTooLarge(RuntimeError):
+    """The request exceeds the provider's per-request token limit (e.g. Groq free tier TPM)."""
+
+
 class LLMError(RuntimeError):
     """Request rejected (bad key, unknown model, bad request)."""
 
@@ -108,6 +112,13 @@ _FAILED_CALL = re.compile(r'^\s*\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*
 TOOL_JSON_NUDGE = ("Your last tool call was rejected because its arguments were not valid JSON. "
                    "Call the tool again with arguments as a JSON object; inside strings escape newlines as \\n "
                    "and quotes as \\\".")
+
+
+def _too_large(r: httpx.Response) -> bool:
+    """Provider says this single request is over its token limit; waiting will not help."""
+    if r.status_code == 413:
+        return True
+    return r.status_code in (400, 429) and "request too large" in r.text.lower()
 
 
 def _tool_use_failed(r: httpx.Response) -> str | None:
@@ -202,6 +213,8 @@ class OpenAICompatClient:
                 time.sleep(delay)
                 attempt += 1
                 continue
+            if _too_large(r):
+                raise LLMRequestTooLarge(f"LLM request too large (HTTP {r.status_code}): {r.text[:300]}")
             failed = _tool_use_failed(r)
             if failed is not None:
                 fixed = salvage_tool_call(failed, tools)

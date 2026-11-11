@@ -10,8 +10,8 @@ from typing import Callable
 
 from app.config import settings
 from app.harness import audit
-from app.harness.context import clip, maybe_compact
-from app.harness.llm import get_client
+from app.harness.context import clip, maybe_compact, shrink_tool_results
+from app.harness.llm import LLMRequestTooLarge, get_client
 from app.harness.mcp_hub import get_hub
 from app.harness.security import ptc_token
 from app.sandbox.runner import run_code
@@ -24,10 +24,18 @@ RULES = """Rules (non-negotiable):
 - Projections are ranges with a stated method, never single predictions. This is analysis, not financial advice."""
 
 SYSTEM = f"""You are an AI stock market assistant. You bring market data, company research and analysis
-together in a conversation. Answer the user's latest message, using earlier turns for context.
+together in a conversation, for any market Yahoo Finance covers. Answer the user's latest message,
+using earlier turns for context.
+
+Markets and symbols: use Yahoo symbols. US: AAPL. India NSE: RELIANCE.NS. London: HSBA.L.
+Tokyo: 7203.T. Hong Kong: 0700.HK. Germany: SAP.DE. Indices: ^GSPC, ^NSEI. Crypto: BTC-USD.
+Forex: EURUSD=X. If you are not sure of a symbol, call search_symbol first.
+Pakistan (PSX) data is not available yet; say so plainly if asked.
+When you give a price, state the market, whether it is open or closed, the price time, and that free
+data is usually delayed. Never call a price "live" unless market_state is REGULAR and delay is 0.
 
 Tools:
-- Quick facts: get_quote, get_company_profile, get_technical_summary, get_earnings, get_news,
+- Quick facts: search_symbol, get_quote, get_company_profile, get_technical_summary, get_earnings, get_news,
   get_financial_statements, get_price_history.
 - run_python: an isolated sandbox with pandas and numpy plus helper modules:
     from ptc import call_tool, prices   # prices(ticker, period) -> OHLCV DataFrame
@@ -102,7 +110,7 @@ STAGE_LABELS = {"run_python": "Running analysis code", "delegate_research": "Sub
                 "get_price_history": "Fetching price history", "get_technical_summary": "Computing indicators",
                 "get_financial_statements": "Reading financial statements", "get_earnings": "Reading earnings",
                 "get_company_profile": "Reading company profile", "get_news": "Reading news",
-                "get_quote": "Fetching quote"}
+                "get_quote": "Fetching quote", "search_symbol": "Finding the symbol"}
 
 
 class LimitReached(Exception):
@@ -150,10 +158,22 @@ def agent_loop(*, run_id: str, agent: str, model: str, system: str, messages: li
 
     for step in range(max_steps + 1):
         force = step == max_steps
-        resp = client.messages.create(
-            model=model, max_tokens=4096, system=system, tools=tools, messages=messages,
-            **({"tool_choice": {"type": "tool", "name": final_tool}} if force else {}),
-        )
+        max_tokens = settings.llm_max_tokens
+        for shrink in range(3):
+            try:
+                resp = client.messages.create(
+                    model=model, max_tokens=max_tokens, system=system, tools=tools, messages=messages,
+                    **({"tool_choice": {"type": "tool", "name": final_tool}} if force else {}),
+                )
+                break
+            except LLMRequestTooLarge as e:
+                if shrink == 2:
+                    raise
+                # free-tier per-request token cap: make the request smaller and try again
+                log("context_shrink", {"attempt": shrink + 1, "error": str(e)[:200]})
+                messages = shrink_tool_results(messages, limit=600 if shrink == 0 else 250)
+                messages = maybe_compact(client, messages, log, force=True)
+                max_tokens = max(768, max_tokens // 2)
         log("model_response", {"step": step, "stop_reason": resp.stop_reason,
                                "usage": resp.usage.model_dump() if getattr(resp, "usage", None) else None,
                                "text": "".join(b.text for b in resp.content if b.type == "text")})
