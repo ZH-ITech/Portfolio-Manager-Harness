@@ -80,8 +80,19 @@ def conversation(cid: str):
 PERIODS = {"1mo", "3mo", "6mo", "1y", "2y", "5y"}
 
 
+@app.get("/api/market/quote")
+def quote(ticker: str, exchange: str = "GLOBAL"):
+    """Latest price with freshness info (market state, exchange time, delay) for the live badge."""
+    try:
+        return provider(exchange).quote(ticker)
+    except DataSourceError as e:
+        raise HTTPException(503, str(e))
+    except (TickerNotFound, NotImplementedError, ValueError) as e:
+        raise HTTPException(404, str(e))
+
+
 @app.get("/api/market/chart")
-def chart(ticker: str, period: str = "1y", overlays: str = "sma_20,sma_50", exchange: str = "NASDAQ"):
+def chart(ticker: str, period: str = "1y", overlays: str = "sma_20,sma_50", exchange: str = "GLOBAL"):
     if period not in PERIODS:
         raise HTTPException(400, "bad period")
     try:
@@ -104,7 +115,7 @@ def chart(ticker: str, period: str = "1y", overlays: str = "sma_20,sma_50", exch
 
 
 @app.get("/api/market/compare")
-def compare(tickers: str, period: str = "1y", exchange: str = "NASDAQ"):
+def compare(tickers: str, period: str = "1y", exchange: str = "GLOBAL"):
     if period not in PERIODS:
         raise HTTPException(400, "bad period")
     names = [t.strip().upper() for t in tickers.split(",") if t.strip()][:5]

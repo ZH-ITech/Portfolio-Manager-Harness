@@ -151,3 +151,61 @@ def test_gives_up_after_two_nudges():
     with pytest.raises(LLMError, match="tool_use_failed"):
         client.messages.create(model="m", messages=[{"role": "user", "content": "x"}], tools=[agent.ANSWER])
     assert len(seen) == 3
+
+
+# ---------- free-tier per-request token cap (Groq HTTP 413) ----------
+GROQ_413 = {"error": {"message": "Request too large for model `openai/gpt-oss-120b` in organization `org_x` service tier "
+                                 "`on_demand` on tokens per minute (TPM): Limit 8000, Requested 8283, please reduce your "
+                                 "message size and try again.", "type": "tokens", "code": "rate_limit_exceeded"}}
+
+
+def test_413_raises_request_too_large_without_waiting(monkeypatch):
+    from app.harness import llm
+    slept = []
+    monkeypatch.setattr(llm.time, "sleep", lambda s: slept.append(s))
+    seen = []
+    client = OpenAICompatClient("http://fake/v1", max_retries=3, transport=_server([(413, GROQ_413)], seen))
+    with pytest.raises(llm.LLMRequestTooLarge):
+        client.messages.create(model="m", messages=[{"role": "user", "content": "x"}])
+    assert len(seen) == 1 and slept == []      # no pointless waiting
+
+
+def test_agent_shrinks_and_retries_when_request_too_large(tmp_db, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app.harness.llm import LLMRequestTooLarge
+
+    class Block(NS):
+        def model_dump(self, **_):
+            return dict(vars(self))
+
+    big = "x" * 5000
+    history = [{"role": "user", "content": "compare NVDA AMD INTC"}]
+    for i in range(3):   # earlier tool rounds with large results
+        history += [{"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}", "name": "get_quote", "input": {}}]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}", "content": big}]}]
+    calls = []
+
+    class C:
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kw):
+            calls.append(kw)
+            if kw.get("max_tokens") == 1200:       # the compaction summary call
+                return NS(content=[Block(type="text", text="summary of earlier data")], stop_reason="end_turn", usage=None)
+            if len(calls) == 1:
+                raise LLMRequestTooLarge("Request too large ... Limit 8000, Requested 8283")
+            return NS(content=[Block(type="tool_use", id="z", name="answer",
+                                     input={"text": "done", "sources": [], "assumptions": []})],
+                      stop_reason="tool_use", usage=None)
+
+    monkeypatch.setattr(agent, "_client", lambda: C())
+    rid = tmp_db.create_run({})
+    out = agent.agent_loop(run_id=rid, agent="o", model="m", system="s", messages=history,
+                           tools=[agent.ANSWER], handlers={}, final_tool="answer", max_steps=3)
+    assert out["text"] == "done"
+    retry = [c for c in calls if c.get("max_tokens") not in (1200,)][1]
+    assert retry["max_tokens"] == agent.settings.llm_max_tokens // 2
+    assert len(str(retry["messages"])) < len(str(history)) / 2       # request really got smaller
+    assert any(e["kind"] == "context_shrink" for e in tmp_db.get_run(rid)["events"])

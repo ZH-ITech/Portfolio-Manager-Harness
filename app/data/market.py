@@ -25,26 +25,28 @@ class DataSourceError(RuntimeError):
     """The upstream data source could not be reached; safe to retry later."""
 
 
-def cached(fn):
+def cached(fn=None, *, ttl: int = CACHE_TTL_S):
     """Small TTL cache so repeated questions do not hit rate limits. Also turns
     network/upstream failures into DataSourceError with a clear message."""
-    def wrapper(self, *args, **kwargs):
-        key = (fn.__name__, args, tuple(sorted(kwargs.items())))
-        with _lock:
-            hit = _cache.get(key)
-            if hit and time.time() - hit[0] < CACHE_TTL_S:
-                return hit[1]
-        try:
-            val = fn(self, *args, **kwargs)
-        except (TickerNotFound, ValueError, NotImplementedError):
-            raise
-        except Exception as e:
-            raise DataSourceError(f"Market data source unavailable ({type(e).__name__}). Try again shortly.") from e
-        with _lock:
-            _cache[key] = (time.time(), val)
-        return val
-    wrapper.__name__ = fn.__name__
-    return wrapper
+    def deco(fn):
+        def wrapper(self, *args, **kwargs):
+            key = (fn.__name__, args, tuple(sorted(kwargs.items())))
+            with _lock:
+                hit = _cache.get(key)
+                if hit and time.time() - hit[0] < ttl:
+                    return hit[1]
+            try:
+                val = fn(self, *args, **kwargs)
+            except (TickerNotFound, ValueError, NotImplementedError):
+                raise
+            except Exception as e:
+                raise DataSourceError(f"Market data source unavailable ({type(e).__name__}). Try again shortly.") from e
+            with _lock:
+                _cache[key] = (time.time(), val)
+            return val
+        wrapper.__name__ = fn.__name__
+        return wrapper
+    return deco(fn) if fn is not None else deco
 
 
 def _clean(v):
@@ -58,8 +60,11 @@ def _clean(v):
     return v
 
 
-class NasdaqProvider:
-    name = "Yahoo Finance via yfinance (delayed)"
+class YahooProvider:
+    """Global markets via Yahoo Finance symbols: US (AAPL), India (RELIANCE.NS), London (HSBA.L),
+    Tokyo (7203.T), Hong Kong (0700.HK), Germany (SAP.DE), indices (^GSPC), crypto (BTC-USD),
+    forex (EURUSD=X). Prices are usually delayed (often ~15 min; varies by exchange)."""
+    name = "Yahoo Finance via yfinance (global, usually delayed)"
 
     def _t(self, ticker: str):
         import yfinance as yf
@@ -82,15 +87,39 @@ class NasdaqProvider:
         return {"ticker": ticker.upper(), "period": period, "interval": interval, "bars": bars,
                 "adjusted": True, "source": self.name, "fetched_at": _now()}
 
-    @cached
+    @cached(ttl=60)
     def quote(self, ticker: str) -> dict:
-        fi = self._t(ticker).fast_info
-        price = _clean(getattr(fi, "last_price", None))
+        t = self._t(ticker)
+        info = {}
+        try:
+            info = t.info or {}
+        except Exception:
+            info = {}
+        fi = t.fast_info
+        price = _clean(info.get("regularMarketPrice")) or _clean(getattr(fi, "last_price", None))
         if price is None:
-            raise TickerNotFound(f"No quote for '{ticker}'.")
-        return {"ticker": ticker.upper(), "price": price,
-                "previous_close": _clean(getattr(fi, "previous_close", None)),
-                "currency": getattr(fi, "currency", None), "source": self.name, "fetched_at": _now()}
+            raise TickerNotFound(f"No quote for '{ticker}'. Check the symbol, or use search_symbol.")
+        ts = info.get("regularMarketTime")
+        as_of = datetime.fromtimestamp(ts, timezone.utc).isoformat(timespec="seconds") if isinstance(ts, (int, float)) else None
+        prev = _clean(info.get("regularMarketPreviousClose")) or _clean(getattr(fi, "previous_close", None))
+        return {"ticker": ticker.upper(), "name": info.get("shortName") or info.get("longName"),
+                "price": price, "previous_close": prev,
+                "change_pct": round((price / prev - 1) * 100, 2) if prev else None,
+                "currency": info.get("currency") or getattr(fi, "currency", None),
+                "exchange": info.get("fullExchangeName") or info.get("exchange"),
+                "market_state": info.get("marketState"),            # e.g. REGULAR (open), CLOSED, PRE, POST
+                "price_time": as_of,                                 # when the exchange printed this price
+                "delay_minutes": _clean(info.get("exchangeDataDelayedBy")),
+                "source": self.name, "fetched_at": _now()}
+
+    @cached(ttl=3600)
+    def search(self, query: str, limit: int = 8) -> dict:
+        import yfinance as yf
+        quotes = yf.Search(query, max_results=limit, news_count=0).quotes or []
+        rows = [{"symbol": q.get("symbol"), "name": q.get("shortname") or q.get("longname"),
+                 "exchange": q.get("exchDisp") or q.get("exchange"), "type": q.get("quoteType")}
+                for q in quotes if q.get("symbol")]
+        return {"query": query, "matches": rows, "source": self.name, "fetched_at": _now()}
 
     # ---------- company information ----------
     @cached
@@ -157,14 +186,18 @@ class PsxProvider:
     def _na(self, *_a, **_k):
         raise NotImplementedError("PSX data source not configured yet (stretch goal, see Jira PMH-14).")
 
-    ohlcv = history = quote = profile = statements = earnings = news = _na
+    ohlcv = history = quote = profile = statements = earnings = news = search = _na
 
 
-PROVIDERS = {"NASDAQ": NasdaqProvider(), "PSX": PsxProvider()}
+NasdaqProvider = YahooProvider   # backwards-compatible name
+
+_yahoo = YahooProvider()
+# Every Yahoo-covered market goes through one provider; the symbol suffix selects the market.
+PROVIDERS = {"GLOBAL": _yahoo, "ANY": _yahoo, "NASDAQ": _yahoo, "NYSE": _yahoo, "US": _yahoo, "PSX": PsxProvider()}
 
 
-def provider(exchange: str = "NASDAQ"):
+def provider(exchange: str = "GLOBAL"):
     try:
-        return PROVIDERS[exchange.upper()]
+        return PROVIDERS[(exchange or "GLOBAL").upper()]
     except KeyError:
-        raise ValueError(f"Unknown exchange '{exchange}'. Use NASDAQ or PSX.")
+        return _yahoo   # unknown names: rely on the Yahoo symbol suffix
