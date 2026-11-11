@@ -103,3 +103,51 @@ def test_missing_key_gives_clear_message(monkeypatch):
         llm.get_client()
     monkeypatch.setattr(llm.settings, "llm_base_url", "http://localhost:11434/v1")   # Ollama needs no key
     assert isinstance(llm.get_client(), OpenAICompatClient)
+
+
+# ---------- malformed tool calls from open-weight models (Groq: tool_use_failed) ----------
+FAILED = ('{"name": "run_python", "arguments": import json, math\nforward_pe = 21.47552\n'
+          'earnings_growth = 0.323 # 32.3%\npeg = forward_pe / (earnings_growth*100)\nprint(round(peg, 2))\n"}')
+
+
+def _tool_failed(gen):
+    return {"error": {"message": "Failed to parse tool call arguments as JSON", "type": "invalid_request_error",
+                      "code": "tool_use_failed", "failed_generation": gen}}
+
+
+def test_salvages_raw_code_for_run_python():
+    seen = []
+    client = OpenAICompatClient("http://fake/v1", max_retries=0, transport=_server([(400, _tool_failed(FAILED))], seen))
+    r = client.messages.create(model="m", messages=[{"role": "user", "content": "x"}], tools=[agent.RUN_PYTHON])
+    call = r.content[0]
+    assert call.type == "tool_use" and call.name == "run_python" and len(seen) == 1
+    assert call.input["code"].startswith("import json, math\nforward_pe")
+    assert call.input["code"].rstrip().endswith("print(round(peg, 2))")
+    from app.sandbox.runner import run_code
+    assert run_code(call.input["code"])["stdout"].strip() == "0.66"   # salvaged code actually runs
+
+
+def test_keeps_escaped_newlines_inside_string_literals():
+    gen = '{"name": "run_python", "arguments": print("a\\nb")\nx = 1\n"}'
+    r = __import__("app.harness.llm", fromlist=["salvage_tool_call"]).salvage_tool_call(gen, [agent.RUN_PYTHON])
+    assert r.content[0].input["code"].startswith('print("a\\nb")\n')
+
+
+def test_unsalvageable_call_is_retried_with_a_nudge():
+    seen = []
+    bad = '{"name": "answer", "arguments": {"text": "unterminated}'
+    client = OpenAICompatClient("http://fake/v1", max_retries=0,
+                                transport=_server([(400, _tool_failed(bad)), (200, _tool_call("answer", {"text": "ok"}))], seen))
+    r = client.messages.create(model="m", messages=[{"role": "user", "content": "x"}], tools=[agent.ANSWER])
+    assert r.content[0].input == {"text": "ok"} and len(seen) == 2
+    assert "not valid JSON" in seen[1]["messages"][-1]["content"]
+
+
+def test_gives_up_after_two_nudges():
+    from app.harness.llm import LLMError
+    seen = []
+    bad = _tool_failed('{"name": "answer", "arguments": {broken')
+    client = OpenAICompatClient("http://fake/v1", max_retries=0, transport=_server([(400, bad)] * 3, seen))
+    with pytest.raises(LLMError, match="tool_use_failed"):
+        client.messages.create(model="m", messages=[{"role": "user", "content": "x"}], tools=[agent.ANSWER])
+    assert len(seen) == 3

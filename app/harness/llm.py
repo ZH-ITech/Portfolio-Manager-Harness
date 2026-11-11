@@ -10,6 +10,7 @@ text / tool_use / tool_result blocks). This module lets that harness run on:
 
 Select with LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, MAIN_MODEL, SUBAGENT_MODEL."""
 import json
+import re
 import time
 import uuid
 from types import SimpleNamespace
@@ -102,6 +103,60 @@ def from_openai_response(data: dict):
 
 
 # ---------- OpenAI-compatible client with the harness's interface ----------
+# ---------- recovery from malformed tool calls (common with open-weight models) ----------
+_FAILED_CALL = re.compile(r'^\s*\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*(.*?)\s*\}?\s*$', re.S)
+TOOL_JSON_NUDGE = ("Your last tool call was rejected because its arguments were not valid JSON. "
+                   "Call the tool again with arguments as a JSON object; inside strings escape newlines as \\n "
+                   "and quotes as \\\".")
+
+
+def _tool_use_failed(r: httpx.Response) -> str | None:
+    """Return the model's raw failed generation if the provider rejected a malformed tool call."""
+    if r.status_code != 400:
+        return None
+    try:
+        body = r.json()
+    except ValueError:
+        return None
+    err = body.get("error") if isinstance(body, dict) else None
+    if isinstance(err, dict) and err.get("code") == "tool_use_failed":
+        return err.get("failed_generation") or ""
+    return None
+
+
+def salvage_tool_call(failed: str, tools: list | None):
+    """Rebuild a tool call from a malformed generation when that is unambiguous:
+    valid JSON arguments, or raw text for a tool that takes exactly one string field
+    (e.g. run_python's `code`). Returns a response object or None."""
+    m = _FAILED_CALL.match(failed or "")
+    if not m:
+        return None
+    name, raw = m.group(1), m.group(2).strip()
+    spec = next((t for t in tools or [] if t["name"] == name), None)
+    if spec is None:
+        return None
+    try:
+        args = json.loads(raw)
+        if not isinstance(args, dict):
+            return None
+    except json.JSONDecodeError:
+        props = (spec.get("input_schema") or {}).get("properties", {})
+        string_fields = [k for k, v in props.items() if v.get("type") == "string"]
+        if len(props) != 1 or len(string_fields) != 1:
+            return None
+        text = raw
+        if text.endswith('"'):
+            text = text[:-1]
+        if text.startswith('"'):
+            text = text[1:]
+        if "\n" not in text:   # code arrived on one line with escaped newlines
+            text = text.replace("\\n", "\n")
+        args = {string_fields[0]: text}
+    return SimpleNamespace(content=[Block(type="tool_use", id=f"call_{uuid.uuid4().hex[:8]}", name=name, input=args)],
+                           stop_reason="tool_use", usage=Usage(input_tokens=None, output_tokens=None),
+                           salvaged=True)
+
+
 class OpenAICompatClient:
     def __init__(self, base_url: str, api_key: str = "", max_retries: int | None = None,
                  timeout: float | None = None, transport: httpx.BaseTransport | None = None):
@@ -125,14 +180,17 @@ class OpenAICompatClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        for attempt in range(self.max_retries + 1):
-            last = attempt == self.max_retries
+        nudges = 0
+        attempt = 0
+        while True:
+            last = attempt >= self.max_retries
             try:
                 r = self.http.post(f"{self.base_url}/chat/completions", json=body, headers=headers)
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 if last:
                     raise LLMTransientError(f"LLM unreachable at {self.base_url}: {e}") from e
                 time.sleep(2 ** attempt)
+                attempt += 1
                 continue
             if r.status_code == 429 or r.status_code >= 500:
                 if last:
@@ -142,7 +200,17 @@ class OpenAICompatClient:
                 except ValueError:
                     delay = 2 ** (attempt + 1)
                 time.sleep(delay)
+                attempt += 1
                 continue
+            failed = _tool_use_failed(r)
+            if failed is not None:
+                fixed = salvage_tool_call(failed, tools)
+                if fixed is not None:
+                    return fixed
+                if nudges < 2:
+                    nudges += 1
+                    body["messages"] = body["messages"] + [{"role": "user", "content": TOOL_JSON_NUDGE}]
+                    continue
             if r.status_code >= 400:
                 raise LLMError(f"LLM request failed (HTTP {r.status_code}): {r.text[:500]}")
             return from_openai_response(r.json())

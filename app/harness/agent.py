@@ -59,7 +59,8 @@ Give no investment recommendations.
 RUN_PYTHON = {
     "name": "run_python",
     "description": "Run Python 3 in an isolated sandbox (time and memory limited, no secrets). pandas, numpy and "
-                   "the ptc/ta/perf/fa helper modules are available. Print results. Returns stdout, stderr, status.",
+                   "the ptc/ta/perf/fa helper modules are available. Print results. Returns stdout, stderr, status. "
+                   "Arguments must be JSON: {\"code\": \"<python source as one JSON string>\"}.",
     "input_schema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]},
 }
 DELEGATE = {
