@@ -1,6 +1,8 @@
 ## Jira issue
 PMH-
 
+<!-- Write "Closes PMH-xx" if this PR finishes the issue: Jira moves it to Done when merged. -->
+
 ## What changed
 
 
