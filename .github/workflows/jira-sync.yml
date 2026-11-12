@@ -1,0 +1,21 @@
+name: Jira sync
+# Updates Jira automatically from pull requests (Jira PMH-20). See scripts/jira_sync.py.
+# Repository secrets: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN. Skipped cleanly if missing.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, closed]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install "httpx>=0.27"
+      - name: Update Jira
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: python scripts/jira_sync.py
